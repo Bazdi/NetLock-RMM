@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Text.Json;
 using System.Text;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Net.Http.Headers;
 using System.Net;
 using System.Security.AccessControl;
@@ -66,6 +67,53 @@ namespace NetLock_RMM_Agent_Remote
             public string tenant_guid { get; set; }
             public string access_key { get; set; }
             public string hwid { get; set; }
+        }
+
+        public class IssueReportEnvelope
+        {
+            public Device_Identity? device_identity { get; set; }
+            public TrayIssueReportPayload? issue_report { get; set; }
+        }
+
+        public class TrayIssueReportPayload
+        {
+            public string report_guid { get; set; } = string.Empty;
+            public DateTime submitted_at { get; set; }
+            public string reported_by { get; set; } = string.Empty;
+            public string machine_name { get; set; } = string.Empty;
+            public string operating_system { get; set; } = string.Empty;
+            public string application_version { get; set; } = string.Empty;
+            public string summary { get; set; } = string.Empty;
+            public string description { get; set; } = string.Empty;
+            public string severity { get; set; } = string.Empty;
+            public string? contact { get; set; }
+            public TrayIssueReportContext? context { get; set; }
+        }
+
+        public class TrayIssueReportContext
+        {
+            public DateTime captured_at { get; set; }
+            public int logical_processors { get; set; }
+            public double? cpu_usage_percent { get; set; }
+            public MemorySnapshot? memory { get; set; }
+            public List<ProcessSnapshot>? top_processes { get; set; }
+            public Dictionary<string, string>? environment { get; set; }
+        }
+
+        public class MemorySnapshot
+        {
+            public double? total_mb { get; set; }
+            public double? available_mb { get; set; }
+            public double? used_mb { get; set; }
+        }
+
+        public class ProcessSnapshot
+        {
+            public string name { get; set; } = string.Empty;
+            public int pid { get; set; }
+            public double memory_mb { get; set; }
+            public DateTime? start_time { get; set; }
+            public string? file_name { get; set; }
         }
 
         public class Command_Entity
@@ -953,7 +1001,7 @@ namespace NetLock_RMM_Agent_Remote
                     "Task triggered");
 
                 // Split message per $
-                string[] messageParts = message.Split('$');
+                string[] messageParts = message.Split('$', 3);
 
                 // Handle specific commands, e.g., template code
                 if (messageParts[0] == "screen_capture")
@@ -990,6 +1038,10 @@ namespace NetLock_RMM_Agent_Remote
                     Console.WriteLine($"Service.Remote_Agent_Server_ProcessMessage - Chat message received: {messageParts[2]}");
                     await remote_server_client.SendAsync("ReceiveClientResponse", messageParts[1], messageParts[2], true);
                 }
+                else if (messageParts[0] == "issue_report")
+                {
+                    await ForwardIssueReportAsync(messageParts.Length > 1 ? messageParts[1] : string.Empty);
+                }
                 else
                 {
                     Logging.Debug("Service.Remote_Agent_Server_ProcessMessage", "Unknown message type",
@@ -999,6 +1051,54 @@ namespace NetLock_RMM_Agent_Remote
             catch (Exception ex)
             {
                 Logging.Error("Service.Remote_Agent_Server_ProcessMessage", "Error processing message.", ex.ToString());
+            }
+        }
+
+        private async Task ForwardIssueReportAsync(string encodedPayload)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(encodedPayload))
+                {
+                    Logging.Error("Service.Remote_Agent_Server_ProcessMessage", "Issue report payload empty.", string.Empty);
+                    return;
+                }
+
+                if (string.IsNullOrEmpty(device_identity_json) || remote_server_client == null)
+                {
+                    Logging.Error("Service.Remote_Agent_Server_ProcessMessage", "Device identity or remote client not available for issue report.", string.Empty);
+                    return;
+                }
+
+                string decodedJson = Encoding.UTF8.GetString(Convert.FromBase64String(encodedPayload));
+
+                var jsonDocument = JsonDocument.Parse(device_identity_json);
+                var deviceIdentityElement = jsonDocument.RootElement.GetProperty("device_identity");
+                Device_Identity deviceIdentity = JsonSerializer.Deserialize<Device_Identity>(deviceIdentityElement.ToString());
+
+                var issueReport = JsonSerializer.Deserialize<TrayIssueReportPayload>(decodedJson);
+                if (issueReport == null)
+                {
+                    Logging.Error("Service.Remote_Agent_Server_ProcessMessage", "Failed to deserialize issue report payload.", decodedJson);
+                    return;
+                }
+
+                var envelope = new IssueReportEnvelope
+                {
+                    device_identity = deviceIdentity,
+                    issue_report = issueReport
+                };
+
+                string payload = JsonSerializer.Serialize(envelope, new JsonSerializerOptions
+                {
+                    WriteIndented = true
+                });
+
+                await remote_server_client.SendAsync("ReceiveTrayIconIssueReport", payload);
+            }
+            catch (Exception ex)
+            {
+                Logging.Error("Service.Remote_Agent_Server_ProcessMessage", "Error forwarding issue report.", ex.ToString());
             }
         }
 

@@ -1,0 +1,69 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        x:Class="NetLock_RMM_Tray_Icon.IssueReportWindow"
+        Width="520" Height="600"
+        Title="Problem melden"
+        CanResize="True"
+        WindowStartupLocation="CenterScreen"
+        mc:Ignorable="d">
+    <Border Padding="16" Background="{DynamicResource ThemeBackgroundBrush}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="16">
+                <StackPanel.Styles>
+                    <Style Selector="TextBlock.header">
+                        <Setter Property="FontSize" Value="18" />
+                        <Setter Property="FontWeight" Value="SemiBold" />
+                    </Style>
+                    <Style Selector="TextBlock.label">
+                        <Setter Property="FontSize" Value="14" />
+                        <Setter Property="FontWeight" Value="SemiBold" />
+                    </Style>
+                </StackPanel.Styles>
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Stretch" VerticalAlignment="Center" Spacing="8">
+                    <TextBlock Classes="header" Text="Support-Anfrage" />
+                    <TextBlock VerticalAlignment="Center" Foreground="Gray" Text="Senden Sie einen Problembericht an das NetLock RMM Team." />
+                </StackPanel>
+
+                <StackPanel Spacing="8">
+                    <TextBlock Classes="label" Text="Betreff" />
+                    <TextBox x:Name="SummaryTextBox" Watermark="Kurze Zusammenfassung" />
+                </StackPanel>
+
+                <StackPanel Spacing="8">
+                    <TextBlock Classes="label" Text="Beschreibung" />
+                    <TextBox x:Name="DescriptionTextBox" Watermark="Beschreiben Sie das Problem" AcceptsReturn="True" Height="150" TextWrapping="Wrap" />
+                </StackPanel>
+
+                <StackPanel Spacing="8">
+                    <TextBlock Classes="label" Text="Priorität" />
+                    <ComboBox x:Name="SeverityComboBox" SelectedIndex="1">
+                        <ComboBoxItem Content="Niedrig" />
+                        <ComboBoxItem Content="Mittel" />
+                        <ComboBoxItem Content="Hoch" />
+                        <ComboBoxItem Content="Kritisch" />
+                    </ComboBox>
+                </StackPanel>
+
+                <StackPanel Spacing="8">
+                    <TextBlock Classes="label" Text="Kontakt (optional)" />
+                    <TextBox x:Name="ContactTextBox" Watermark="E-Mail, Telefon oder Teams-Link" />
+                </StackPanel>
+
+                <StackPanel Spacing="8">
+                    <CheckBox x:Name="IncludeProcessListCheckBox" IsChecked="True" Content="Aktuelle Prozessliste mitsenden" />
+                    <CheckBox x:Name="IncludePerformanceSnapshotCheckBox" IsChecked="True" Content="CPU- und RAM-Auslastung aufnehmen" />
+                </StackPanel>
+
+                <TextBlock x:Name="StatusTextBlock" Foreground="Gray" TextWrapping="Wrap" />
+
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                    <Button x:Name="CancelButton" Content="Abbrechen" />
+                    <Button x:Name="SubmitButton" Content="Absenden" IsEnabled="False" />
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </Border>
+</Window>
