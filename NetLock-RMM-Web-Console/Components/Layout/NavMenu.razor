@@ -179,6 +179,13 @@
             <MudNavLink Disabled="true"></MudNavLink>
 
             @{
+                if (permissions_support_incidents_enabled)
+                {
+                    <MudNavLink Icon="@Icons.Material.Filled.ReportProblem" Href="/issue_reports">Problemberichte</MudNavLink>
+                }
+            }
+
+            @{
                 if (permissions_events_enabled)
                 {
                     <MudNavLink Icon="@Icons.Material.Filled.TextSnippet" Href="/events">@Localizer["events"]</MudNavLink>
@@ -252,6 +259,7 @@
     private bool permissions_settings_notifications_enabled = false;
     private bool permissions_settings_system_enabled = false;
     private bool permissions_settings_protocols_enabled = false;
+    private bool permissions_support_incidents_enabled = false;
     public static List<string> permissions_tenants_list = new List<string> { };
 
 	public bool tenants_full_access = false; // If the user has full access to all tenants, this will be true.
@@ -335,6 +343,7 @@
             permissions_settings_notifications_enabled = await Classes.Authentication.Permissions.Verify_Permission(netlock_username, "devices_unauthorized_enabled");
             permissions_settings_system_enabled = await Classes.Authentication.Permissions.Verify_Permission(netlock_username, "devices_unauthorized_enabled");
             permissions_settings_protocols_enabled = await Classes.Authentication.Permissions.Verify_Permission(netlock_username, "devices_unauthorized_enabled");
+            permissions_support_incidents_enabled = await Classes.Authentication.Permissions.Verify_Permission(netlock_username, "support_incidents_enabled");
 			permissions_tenants_list = await Classes.Authentication.Permissions.Get_Tenants(netlock_username, false);
             tenants_full_access = await Classes.Authentication.Permissions.Verify_Tenants_Full_Access(netlock_username);
 

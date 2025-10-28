@@ -3,13 +3,16 @@ using Microsoft.Extensions.Configuration;
 using MySqlConnector;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Data;
 using System.Globalization;
 using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 
 using static NetLock_RMM_Server.Agent.Windows.Authentification;
+using NetLock_RMM_Server.Agent.Windows;
 
 namespace NetLock_RMM_Server.SignalR
 {
@@ -18,6 +21,15 @@ namespace NetLock_RMM_Server.SignalR
         // Verbindungswerte werden aus der appsettings.json geladen und defaulten zu sinnvollen Werten
         private static readonly int MAX_CONNECTION_ATTEMPTS = Configuration.SignalR.MaxConnectionAttempts;
         private static readonly int CONNECTION_ATTEMPT_DELAY_MS = Configuration.SignalR.ConnectionAttemptDelayMs;
+
+        private static bool issueReportTableEnsured = false;
+        private static readonly SemaphoreSlim IssueReportTableLock = new SemaphoreSlim(1, 1);
+        private static readonly HashSet<string> AllowedIssueReportStatuses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "open",
+            "in_progress",
+            "resolved"
+        };
 
 
         public class Device_Identity
@@ -87,6 +99,85 @@ namespace NetLock_RMM_Server.SignalR
             public Admin_Identity? admin_identity { get; set; }
             public Target_Device? target_device { get; set; }
             public Command? command { get; set; }
+        }
+
+        public class TrayIssueReportContext
+        {
+            public DateTime captured_at { get; set; }
+            public int logical_processors { get; set; }
+            public double? cpu_usage_percent { get; set; }
+            public MemorySnapshot? memory { get; set; }
+            public List<ProcessSnapshot>? top_processes { get; set; }
+            public Dictionary<string, string>? environment { get; set; }
+        }
+
+        public class MemorySnapshot
+        {
+            public double? total_mb { get; set; }
+            public double? available_mb { get; set; }
+            public double? used_mb { get; set; }
+        }
+
+        public class ProcessSnapshot
+        {
+            public string name { get; set; } = string.Empty;
+            public int pid { get; set; }
+            public double memory_mb { get; set; }
+            public DateTime? start_time { get; set; }
+            public string? file_name { get; set; }
+        }
+
+        public class TrayIssueReportPayload
+        {
+            public string report_guid { get; set; } = string.Empty;
+            public DateTime submitted_at { get; set; }
+            public string reported_by { get; set; } = string.Empty;
+            public string machine_name { get; set; } = string.Empty;
+            public string operating_system { get; set; } = string.Empty;
+            public string application_version { get; set; } = string.Empty;
+            public string summary { get; set; } = string.Empty;
+            public string description { get; set; } = string.Empty;
+            public string severity { get; set; } = string.Empty;
+            public string? contact { get; set; }
+            public TrayIssueReportContext? context { get; set; }
+        }
+
+        public class IssueReportEnvelope
+        {
+            public Device_Identity? device_identity { get; set; }
+            public TrayIssueReportPayload? issue_report { get; set; }
+        }
+
+        public class IssueReportBroadcast
+        {
+            public string report_guid { get; set; } = string.Empty;
+            public int device_id { get; set; }
+            public string device_name { get; set; } = string.Empty;
+            public string device_hwid { get; set; } = string.Empty;
+            public int tenant_id { get; set; }
+            public string tenant_guid { get; set; } = string.Empty;
+            public int location_id { get; set; }
+            public string location_guid { get; set; } = string.Empty;
+            public DateTime submitted_at { get; set; }
+            public string reported_by { get; set; } = string.Empty;
+            public string severity { get; set; } = string.Empty;
+            public string summary { get; set; } = string.Empty;
+            public string description { get; set; } = string.Empty;
+            public string? contact { get; set; }
+            public string context_json { get; set; } = "{}";
+            public string status { get; set; } = "open";
+        }
+
+        public class IssueReportStatusUpdate
+        {
+            public string report_guid { get; set; } = string.Empty;
+            public string status { get; set; } = string.Empty;
+        }
+
+        public class IssueReportStatusUpdateRequest
+        {
+            public Admin_Identity? admin_identity { get; set; }
+            public IssueReportStatusUpdate? update { get; set; }
         }
 
         public override async Task OnConnectedAsync()
@@ -354,6 +445,81 @@ namespace NetLock_RMM_Server.SignalR
             }
         }
 
+        private async Task EnsureIssueReportTableAsync()
+        {
+            if (issueReportTableEnsured)
+                return;
+
+            await IssueReportTableLock.WaitAsync();
+            try
+            {
+                if (issueReportTableEnsured)
+                    return;
+
+                using var conn = new MySqlConnection(Configuration.MySQL.Connection_String);
+                await conn.OpenAsync();
+
+                string createTableSql = @"CREATE TABLE IF NOT EXISTS `device_issue_reports` (
+                    `id` INT NOT NULL AUTO_INCREMENT,
+                    `report_guid` VARCHAR(64) NOT NULL,
+                    `device_id` INT NOT NULL,
+                    `device_name` VARCHAR(255) NOT NULL,
+                    `device_hwid` VARCHAR(255) NULL,
+                    `tenant_id` INT NOT NULL,
+                    `tenant_guid` VARCHAR(64) NOT NULL,
+                    `location_id` INT NOT NULL,
+                    `location_guid` VARCHAR(64) NOT NULL,
+                    `submitted_at` DATETIME NOT NULL,
+                    `reported_by` VARCHAR(255) NOT NULL,
+                    `severity` VARCHAR(32) NOT NULL,
+                    `summary` TEXT NOT NULL,
+                    `description` LONGTEXT NOT NULL,
+                    `contact` VARCHAR(255) NULL,
+                    `context_json` LONGTEXT NULL,
+                    `status` VARCHAR(32) NOT NULL DEFAULT 'open',
+                    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    `updated_at` DATETIME NULL,
+                    PRIMARY KEY (`id`),
+                    UNIQUE KEY `ux_device_issue_reports_report_guid` (`report_guid`),
+                    INDEX `idx_device_issue_reports_device` (`device_id`),
+                    INDEX `idx_device_issue_reports_tenant` (`tenant_guid`),
+                    INDEX `idx_device_issue_reports_status` (`status`),
+                    INDEX `idx_device_issue_reports_submitted` (`submitted_at`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
+
+                using var cmd = new MySqlCommand(createTableSql, conn);
+                await cmd.ExecuteNonQueryAsync();
+
+                issueReportTableEnsured = true;
+            }
+            catch (Exception ex)
+            {
+                Logging.Handler.Error("SignalR CommandHub", "EnsureIssueReportTableAsync", ex.ToString());
+            }
+            finally
+            {
+                IssueReportTableLock.Release();
+            }
+        }
+
+        private static string NormalizeSeverity(string? severity)
+        {
+            if (string.IsNullOrWhiteSpace(severity))
+                return "mittel";
+
+            string normalized = severity.Trim().ToLowerInvariant();
+            return normalized switch
+            {
+                "low" => "niedrig",
+                "medium" => "mittel",
+                "med" => "mittel",
+                "high" => "hoch",
+                "critical" => "kritisch",
+                "niedrig" or "mittel" or "hoch" or "kritisch" => normalized,
+                _ => "mittel"
+            };
+        }
+
         // Receive response from client and send it back to the admin client
         public async Task ReceiveClientResponse(string responseId, string response, bool persistent)
         {
@@ -486,6 +652,209 @@ namespace NetLock_RMM_Server.SignalR
                 // Remove the responseId from the dictionary
                 if (!persistent) 
                     CommandHubSingleton.Instance.RemoveAdminCommand(responseId);
+            }
+        }
+
+        public async Task ReceiveTrayIconIssueReport(string payload)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(payload))
+                {
+                    Logging.Handler.Error("SignalR CommandHub", "ReceiveTrayIconIssueReport", "Payload is empty.");
+                    return;
+                }
+
+                IssueReportEnvelope? envelope = JsonSerializer.Deserialize<IssueReportEnvelope>(payload);
+                if (envelope?.device_identity == null || envelope.issue_report == null)
+                {
+                    Logging.Handler.Error("SignalR CommandHub", "ReceiveTrayIconIssueReport", "Invalid payload structure.");
+                    return;
+                }
+
+                TrayIssueReportPayload report = envelope.issue_report;
+                Device_Identity identity = envelope.device_identity;
+
+                string reportGuid = string.IsNullOrWhiteSpace(report.report_guid)
+                    ? Guid.NewGuid().ToString("N")
+                    : report.report_guid;
+
+                DateTime submittedAt = report.submitted_at == default
+                    ? DateTime.UtcNow
+                    : report.submitted_at;
+
+                (int tenantId, int locationId) = await Helper.Get_Tenant_Location_Id(identity.tenant_guid, identity.location_guid);
+                if (tenantId == 0 || locationId == 0)
+                {
+                    Logging.Handler.Error("SignalR CommandHub", "ReceiveTrayIconIssueReport", "Failed to resolve tenant/location identifiers.");
+                    return;
+                }
+
+                int deviceId = await Helper.Get_Device_Id(identity.device_name, tenantId, locationId);
+                if (deviceId == 0)
+                {
+                    Logging.Handler.Error("SignalR CommandHub", "ReceiveTrayIconIssueReport", "Unknown device identifier.");
+                    return;
+                }
+
+                await EnsureIssueReportTableAsync();
+
+                string contextJson = report.context != null
+                    ? JsonSerializer.Serialize(report.context)
+                    : "{}";
+
+                using (var conn = new MySqlConnection(Configuration.MySQL.Connection_String))
+                {
+                    await conn.OpenAsync();
+
+                    string insertSql = @"INSERT INTO `device_issue_reports`
+                        (`report_guid`, `device_id`, `device_name`, `device_hwid`, `tenant_id`, `tenant_guid`, `location_id`, `location_guid`, `submitted_at`, `reported_by`, `severity`, `summary`, `description`, `contact`, `context_json`, `status`, `created_at`)
+                        VALUES (@report_guid, @device_id, @device_name, @device_hwid, @tenant_id, @tenant_guid, @location_id, @location_guid, @submitted_at, @reported_by, @severity, @summary, @description, @contact, @context_json, 'open', NOW())
+                        ON DUPLICATE KEY UPDATE
+                        `submitted_at` = VALUES(`submitted_at`),
+                        `reported_by` = VALUES(`reported_by`),
+                        `severity` = VALUES(`severity`),
+                        `summary` = VALUES(`summary`),
+                        `description` = VALUES(`description`),
+                        `contact` = VALUES(`contact`),
+                        `context_json` = VALUES(`context_json`),
+                        `updated_at` = NOW();";
+
+                    using var cmd = new MySqlCommand(insertSql, conn);
+                    cmd.Parameters.AddWithValue("@report_guid", reportGuid);
+                    cmd.Parameters.AddWithValue("@device_id", deviceId);
+                    cmd.Parameters.AddWithValue("@device_name", identity.device_name ?? string.Empty);
+                    cmd.Parameters.AddWithValue("@device_hwid", identity.hwid ?? string.Empty);
+                    cmd.Parameters.AddWithValue("@tenant_id", tenantId);
+                    cmd.Parameters.AddWithValue("@tenant_guid", identity.tenant_guid ?? string.Empty);
+                    cmd.Parameters.AddWithValue("@location_id", locationId);
+                    cmd.Parameters.AddWithValue("@location_guid", identity.location_guid ?? string.Empty);
+                    cmd.Parameters.AddWithValue("@submitted_at", submittedAt);
+                    cmd.Parameters.AddWithValue("@reported_by", report.reported_by ?? string.Empty);
+                    cmd.Parameters.AddWithValue("@severity", NormalizeSeverity(report.severity));
+                    cmd.Parameters.AddWithValue("@summary", string.IsNullOrWhiteSpace(report.summary) ? "(Keine Zusammenfassung)" : report.summary);
+                    cmd.Parameters.AddWithValue("@description", string.IsNullOrWhiteSpace(report.description) ? "(Keine Beschreibung)" : report.description);
+                    cmd.Parameters.AddWithValue("@contact", string.IsNullOrWhiteSpace(report.contact) ? null : report.contact);
+                    cmd.Parameters.AddWithValue("@context_json", contextJson);
+
+                    await cmd.ExecuteNonQueryAsync();
+                }
+
+                var broadcast = new IssueReportBroadcast
+                {
+                    report_guid = reportGuid,
+                    device_id = deviceId,
+                    device_name = identity.device_name ?? string.Empty,
+                    device_hwid = identity.hwid ?? string.Empty,
+                    tenant_id = tenantId,
+                    tenant_guid = identity.tenant_guid ?? string.Empty,
+                    location_id = locationId,
+                    location_guid = identity.location_guid ?? string.Empty,
+                    submitted_at = submittedAt,
+                    reported_by = report.reported_by ?? string.Empty,
+                    severity = NormalizeSeverity(report.severity),
+                    summary = string.IsNullOrWhiteSpace(report.summary) ? "(Keine Zusammenfassung)" : report.summary,
+                    description = string.IsNullOrWhiteSpace(report.description) ? "(Keine Beschreibung)" : report.description,
+                    contact = string.IsNullOrWhiteSpace(report.contact) ? null : report.contact,
+                    context_json = contextJson,
+                    status = "open"
+                };
+
+                string broadcastJson = JsonSerializer.Serialize(broadcast);
+                await Clients.All.SendAsync("ReceiveTrayIconIssueReport", broadcastJson);
+            }
+            catch (Exception ex)
+            {
+                Logging.Handler.Error("SignalR CommandHub", "ReceiveTrayIconIssueReport", ex.ToString());
+            }
+        }
+
+        public async Task UpdateIssueReportStatus(string payload)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(payload))
+                {
+                    Logging.Handler.Error("SignalR CommandHub", "UpdateIssueReportStatus", "Payload is empty.");
+                    return;
+                }
+
+                IssueReportStatusUpdateRequest? request = JsonSerializer.Deserialize<IssueReportStatusUpdateRequest>(payload);
+                if (request?.admin_identity == null || request.update == null)
+                {
+                    Logging.Handler.Error("SignalR CommandHub", "UpdateIssueReportStatus", "Invalid payload structure.");
+                    return;
+                }
+
+                string normalizedStatus = request.update.status?.Trim().ToLowerInvariant() ?? string.Empty;
+                if (!AllowedIssueReportStatuses.Contains(normalizedStatus))
+                {
+                    Logging.Handler.Error("SignalR CommandHub", "UpdateIssueReportStatus", $"Unsupported status '{request.update.status}'.");
+                    return;
+                }
+
+                await EnsureIssueReportTableAsync();
+
+                IssueReportBroadcast? broadcast = null;
+
+                using (var conn = new MySqlConnection(Configuration.MySQL.Connection_String))
+                {
+                    await conn.OpenAsync();
+
+                    string updateSql = "UPDATE device_issue_reports SET status = @status, updated_at = NOW() WHERE report_guid = @report_guid";
+                    using (var updateCmd = new MySqlCommand(updateSql, conn))
+                    {
+                        updateCmd.Parameters.AddWithValue("@status", normalizedStatus);
+                        updateCmd.Parameters.AddWithValue("@report_guid", request.update.report_guid);
+
+                        int affected = await updateCmd.ExecuteNonQueryAsync();
+                        if (affected == 0)
+                        {
+                            Logging.Handler.Warning("SignalR CommandHub", "UpdateIssueReportStatus", "No matching report found.");
+                            return;
+                        }
+                    }
+
+                    string selectSql = @"SELECT report_guid, device_id, device_name, device_hwid, tenant_id, tenant_guid, location_id, location_guid, submitted_at, reported_by, severity, summary, description, contact, context_json, status
+                                         FROM device_issue_reports WHERE report_guid = @report_guid LIMIT 1";
+
+                    using var selectCmd = new MySqlCommand(selectSql, conn);
+                    selectCmd.Parameters.AddWithValue("@report_guid", request.update.report_guid);
+
+                    using var reader = await selectCmd.ExecuteReaderAsync();
+                    if (await reader.ReadAsync())
+                    {
+                        broadcast = new IssueReportBroadcast
+                        {
+                            report_guid = reader.GetString("report_guid"),
+                            device_id = reader.GetInt32("device_id"),
+                            device_name = reader.GetString("device_name"),
+                            device_hwid = reader.GetString("device_hwid"),
+                            tenant_id = reader.GetInt32("tenant_id"),
+                            tenant_guid = reader.GetString("tenant_guid"),
+                            location_id = reader.GetInt32("location_id"),
+                            location_guid = reader.GetString("location_guid"),
+                            submitted_at = reader.GetDateTime("submitted_at"),
+                            reported_by = reader.GetString("reported_by"),
+                            severity = reader.GetString("severity"),
+                            summary = reader.GetString("summary"),
+                            description = reader.GetString("description"),
+                            contact = reader.IsDBNull(reader.GetOrdinal("contact")) ? null : reader.GetString("contact"),
+                            context_json = reader.IsDBNull(reader.GetOrdinal("context_json")) ? "{}" : reader.GetString("context_json"),
+                            status = reader.GetString("status")
+                        };
+                    }
+                }
+
+                if (broadcast != null)
+                {
+                    string broadcastJson = JsonSerializer.Serialize(broadcast);
+                    await Clients.All.SendAsync("ReceiveTrayIconIssueReportStatusChanged", broadcastJson);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logging.Handler.Error("SignalR CommandHub", "UpdateIssueReportStatus", ex.ToString());
             }
         }
 

@@ -1,0 +1,86 @@
+@page "/issue_reports"
+@attribute [Authorize]
+
+@using MudBlazor
+
+<PageTitle>Problemberichte</PageTitle>
+
+@if (!permissionChecked)
+{
+    <MudPaper Class="pa-6">
+        <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+        <MudText Class="mt-4" Typo="Typo.body1">Lade Berechtigungen...</MudText>
+    </MudPaper>
+}
+else if (!hasPermission)
+{
+    <MudPaper Class="pa-6">
+        <MudText Typo="Typo.h5">Kein Zugriff</MudText>
+        <MudText Typo="Typo.body1">Sie besitzen keine Berechtigung zum Einsehen der Problemberichte.</MudText>
+    </MudPaper>
+}
+else
+{
+    <MudStack Spacing="24">
+        <MudStack Row="true" AlignItems="Center" Justify="SpaceBetween">
+            <MudStack>
+                <MudText Typo="Typo.h4">Problemberichte</MudText>
+                <MudText Typo="Typo.body2">Eingehende Meldungen aus dem Tray-Client.</MudText>
+            </MudStack>
+            <MudChip Color="Color.Info" Variant="Variant.Filled" Icon="@Icons.Material.Filled.ListAlt">
+                @($"{FilteredReports.Count()} Einträge")
+            </MudChip>
+        </MudStack>
+
+        <MudTextField @bind-Value="searchText"
+                      Placeholder="Suche nach Gerät, Benutzer oder Betreff..."
+                      Adornment="Adornment.Start"
+                      Immediate="true"
+                      AdornmentIcon="@Icons.Material.Filled.Search"
+                      Variant="Variant.Outlined"
+                      Margin="Margin.Dense" />
+
+        <MudPaper Class="pa-0">
+            <MudTable Items="FilteredReports" Hover="true" Dense="true">
+                <HeaderContent>
+                    <MudTh>Datum</MudTh>
+                    <MudTh>Schwere</MudTh>
+                    <MudTh>Gerät</MudTh>
+                    <MudTh>Benutzer</MudTh>
+                    <MudTh>Status</MudTh>
+                    <MudTh>Betreff</MudTh>
+                    <MudTh></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Datum">@context.SubmittedAt.ToLocalTime().ToString("g")</MudTd>
+                    <MudTd DataLabel="Schwere">@SeverityChip(context)</MudTd>
+                    <MudTd DataLabel="Gerät">
+                        <MudText Typo="Typo.body2">@context.DeviceName</MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@context.DeviceHwid</MudText>
+                    </MudTd>
+                    <MudTd DataLabel="Benutzer">@context.ReportedBy</MudTd>
+                    <MudTd DataLabel="Status">@StatusChip(context)</MudTd>
+                    <MudTd DataLabel="Betreff">
+                        <MudTooltip Text="@context.Summary">
+                            <MudText Typo="Typo.body2" Class="mud-text-truncate" Style="max-width: 260px;">@context.Summary</MudText>
+                        </MudTooltip>
+                    </MudTd>
+                    <MudTd DataLabel="Aktionen" Class="text-right">
+                        <MudIconButton Icon="@Icons.Material.Filled.Info" Color="Color.Primary" OnClick="@(() => ShowDetailsAsync(context))" />
+                        <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                            <ActivatorContent>
+                                <MudIconButton Icon="@Icons.Material.Filled.MoreVert" Color="Color.Default" />
+                            </ActivatorContent>
+                            <MudMenuItem OnClick="@(() => UpdateStatusAsync(context, "open"))" Disabled="context.Status == "open"">Als offen markieren</MudMenuItem>
+                            <MudMenuItem OnClick="@(() => UpdateStatusAsync(context, "in_progress"))" Disabled="context.Status == "in_progress"">In Bearbeitung</MudMenuItem>
+                            <MudMenuItem OnClick="@(() => UpdateStatusAsync(context, "resolved"))" Disabled="context.Status == "resolved"">Erledigt</MudMenuItem>
+                        </MudMenu>
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent>
+                    <MudText Typo="Typo.body2" Class="pa-4">Keine Problemberichte vorhanden.</MudText>
+                </NoRecordsContent>
+            </MudTable>
+        </MudPaper>
+    </MudStack>
+}

@@ -15,6 +15,7 @@ using Avalonia.Media;
 using Global.Encryption;
 using Global.Helper;
 using NetLock_RMM_Agent_Comm;
+using Avalonia.Threading;
 
 
 namespace NetLock_RMM_Tray_Icon
@@ -23,6 +24,7 @@ namespace NetLock_RMM_Tray_Icon
     {
         private TrayIcon _trayIcon;
         private ActionSidebar? _actionSidebar;
+        private IssueReportWindow? _issueReportWindow;
         
 
         
@@ -102,6 +104,11 @@ namespace NetLock_RMM_Tray_Icon
                         }
                     }
                 
+                    // Add problem report entry
+                    var reportItem = new NativeMenuItem("Problem melden");
+                    reportItem.Click += (_, __) => ShowIssueReportWindow();
+                    menu.Items.Add(reportItem);
+
                     // Add buttons from config as menu items
                     if (AppConfig.TrayConfig != null && AppConfig.TrayConfig.AboutButtonEnabled == true && AppConfig.AboutConfig.Enabled == true)
                     {
@@ -312,6 +319,34 @@ namespace NetLock_RMM_Tray_Icon
             catch (Exception e)
             {
                 Logging.Error("ShowAboutDialog", "error", e.ToString());
+            }
+        }
+
+        private void ShowIssueReportWindow()
+        {
+            try
+            {
+                Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (_issueReportWindow == null || !_issueReportWindow.IsVisible)
+                    {
+                        _issueReportWindow = new IssueReportWindow();
+                        _issueReportWindow.Closed += (_, __) => _issueReportWindow = null;
+                        _issueReportWindow.Show();
+                    }
+                    else
+                    {
+                        _issueReportWindow.WindowState = WindowState.Normal;
+                        _issueReportWindow.Activate();
+                        _issueReportWindow.Topmost = true;
+                        _issueReportWindow.Topmost = false;
+                        _issueReportWindow.Focus();
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Logging.Error("App", "ShowIssueReportWindow", ex.ToString());
             }
         }
     }

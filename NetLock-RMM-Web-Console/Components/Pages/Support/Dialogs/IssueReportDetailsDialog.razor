@@ -1,0 +1,153 @@
+@using System.Linq
+@using MudBlazor
+@using NetLock_RMM_Web_Console.Components.Pages.Support
+
+@inherits MudDialogBase
+
+<MudDialogContent Class="pa-4">
+    <MudStack Spacing="16">
+        <MudStack>
+            <MudText Typo="Typo.h5">@Report.Summary</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                @Report.DeviceName · @Report.ReportedBy · @Report.SubmittedAt.ToLocalTime().ToString("f")
+            </MudText>
+        </MudStack>
+
+        <MudDivider />
+
+        <MudStack Row="true" Spacing="8">
+            <MudChip Color="@SeverityColor(Report.Severity)" Variant="Variant.Filled">@FormatSeverity(Report.Severity)</MudChip>
+            <MudChip Color="@StatusColor(Report.Status)" Variant="Variant.Outlined">@FormatStatus(Report.Status)</MudChip>
+        </MudStack>
+
+        <MudPaper Class="pa-3" Elevation="0">
+            <MudText Typo="Typo.body1">@Report.Description</MudText>
+        </MudPaper>
+
+        @if (!string.IsNullOrWhiteSpace(Report.Contact))
+        {
+            <MudAlert Severity="Severity.Info">Kontakt: @Report.Contact</MudAlert>
+        }
+
+        @if (Context != null)
+        {
+            <MudExpansionPanels>
+                <MudExpansionPanel Text="Systemsnapshot" IsExpanded="true">
+                    <MudStack Spacing="12">
+                        <MudText Typo="Typo.body2">Aufnahmezeit: @Context.captured_at.ToLocalTime().ToString("f")</MudText>
+                        <MudStack Row="true" Spacing="12">
+                            <MudPaper Class="pa-3" Elevation="1">
+                                <MudText Typo="Typo.subtitle2">CPU-Auslastung</MudText>
+                                <MudText Typo="Typo.h6">@CpuUsageText()</MudText>
+                            </MudPaper>
+                            <MudPaper Class="pa-3" Elevation="1">
+                                <MudText Typo="Typo.subtitle2">RAM</MudText>
+                                <MudText Typo="Typo.h6">@MemoryText()</MudText>
+                            </MudPaper>
+                        </MudStack>
+
+                        @if (Context.environment != null && Context.environment.Any())
+                        {
+                            <MudPaper Class="pa-3" Elevation="1">
+                                <MudText Typo="Typo.subtitle2">Umgebung</MudText>
+                                <MudList Dense="true">
+                                    @foreach (var entry in Context.environment)
+                                    {
+                                        <MudListItem>@entry.Key: @entry.Value</MudListItem>
+                                    }
+                                </MudList>
+                            </MudPaper>
+                        }
+                    </MudStack>
+                </MudExpansionPanel>
+
+                @if (Context.top_processes != null && Context.top_processes.Any())
+                {
+                    <MudExpansionPanel Text="Top-Prozesse">
+                        <MudTable Items="Context.top_processes" Dense="true">
+                            <HeaderContent>
+                                <MudTh>Prozess</MudTh>
+                                <MudTh>PID</MudTh>
+                                <MudTh>Speicher (MB)</MudTh>
+                                <MudTh>Startzeit</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Prozess">@context.name</MudTd>
+                                <MudTd DataLabel="PID">@context.pid</MudTd>
+                                <MudTd DataLabel="Speicher (MB)">@context.memory_mb.ToString("F1")</MudTd>
+                                <MudTd DataLabel="Startzeit">@(context.start_time?.ToLocalTime().ToString("g") ?? "-" )</MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    </MudExpansionPanel>
+                }
+            </MudExpansionPanels>
+        }
+    </MudStack>
+</MudDialogContent>
+
+<MudDialogActions>
+    <MudButton Variant="Variant.Text" OnClick="Close">Schließen</MudButton>
+</MudDialogActions>
+
+@code {
+    [CascadingParameter] private MudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter]
+    public IssueReportRecord Report { get; set; } = default!;
+
+    private TrayIssueReportContext? Context => Report.Context;
+
+    private void Close() => MudDialog?.Close();
+
+    private string CpuUsageText()
+    {
+        if (Context?.cpu_usage_percent is double value)
+            return $"{value:F1}%";
+
+        return "n/a";
+    }
+
+    private string MemoryText()
+    {
+        if (Context?.memory is null)
+            return "n/a";
+
+        var memory = Context.memory;
+        if (memory.total_mb.HasValue && memory.available_mb.HasValue)
+            return $"{memory.used_mb?.ToString("F0") ?? "-"} / {memory.total_mb.Value:F0} MB";
+
+        return "n/a";
+    }
+
+    private Color SeverityColor(string severity) => severity.ToLowerInvariant() switch
+    {
+        "kritisch" => Color.Error,
+        "hoch" => Color.Error,
+        "mittel" => Color.Warning,
+        _ => Color.Success
+    };
+
+    private Color StatusColor(string status) => status.ToLowerInvariant() switch
+    {
+        "resolved" => Color.Success,
+        "in_progress" => Color.Warning,
+        _ => Color.Info
+    };
+
+    private static string FormatSeverity(string severity) => severity switch
+    {
+        "kritisch" => "Kritisch",
+        "hoch" => "Hoch",
+        "mittel" => "Mittel",
+        "niedrig" => "Niedrig",
+        _ => severity
+    };
+
+    private static string FormatStatus(string status) => status switch
+    {
+        "resolved" => "Erledigt",
+        "in_progress" => "In Bearbeitung",
+        "open" => "Offen",
+        _ => status
+    };
+}

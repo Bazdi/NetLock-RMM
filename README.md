@@ -71,6 +71,9 @@ NetLock RMM can be deployed in various environments, including cloud setups or i
 ### ➕ **And Much More...**
 Explore the full capabilities in our documentation to see everything NetLock RMM has to offer.
 
+### 💡 **Tray-basiertes Incident-Reporting**
+Der Tray-Client enthält nun einen Menüpunkt „Problem melden“. Anwender erfassen dort Betreff, Beschreibung, Priorität und Kontaktinformationen; beim Absenden erstellt der Client automatisch einen Incident-Report, ergänzt um einen optionalen System-Snapshot (CPU- und RAM-Auslastung, Top-Prozesse, Umgebungsvariablen) und sendet ihn über den lokalen Agent an den Server. Die Berichte werden serverseitig inklusive Geräte- und Mandantenbezug gespeichert und stehen in der Web-Konsole live zur Verfügung. Administratoren sehen neue Meldungen in einer eigenen Übersicht, können nach Tenant, Gerät oder Status filtern und Berichte als „offen“, „in Bearbeitung“ oder „erledigt“ markieren. Detaildialoge zeigen den vollständigen Kontext inklusive Prozessliste und Ressourcenauslastung, damit der Support unmittelbar mit der Analyse beginnen kann.
+
 Note: Why are the unsigned packages not on GitHub?
 https://blog.netlockrmm.com/2024/12/22/why-are-the-unsigned-packages-not-on-github/
 
